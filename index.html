@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockMaster Pro - Controle de Estoque Rápido</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- sql.js (SQLite em WebAssembly) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+  <!-- SheetJS com suporte a estilos e cores (xlsx-js-style) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <!-- Inter Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+
+    @media print {
+      html, body {
+        background: white !important;
+        color: black !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        font-size: 9pt !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .no-print { 
+        display: none !important; 
+      }
+
+      .print-container {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+
+      th, td {
+        padding: 6px 4px !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+    }
+    
+    .custom-scroll::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #0f172a;
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col antialiased">
+
+  <!-- Cabeçalho Principal -->
+  <header class="bg-slate-950 border-b border-slate-800 text-white shadow-md no-print">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="flex items-center gap-3">
+        <div class="bg-gradient-to-tr from-sky-600 to-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-sky-500/20">
+          <i data-lucide="boxes" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-xl font-extrabold tracking-tight flex items-center gap-2">
+            StockMaster <span class="text-xs bg-sky-500/20 text-sky-400 font-semibold px-2 py-0.5 rounded-full border border-sky-500/30">Ultra Rápido</span>
+          </h1>
+          <p class="text-xs text-slate-400">Controle Inteligente de Estoque & Lançamento em Lote</p>
+        </div>
+      </div>
+
+      <!-- Ações do Banco de Dados e Exportação -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div id="db-status-badge" class="flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-500/20 font-medium">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          Conectado
+        </div>
+
+        <label class="cursor-pointer bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center gap-1.5">
+          <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+          <span>Importar DB</span>
+          <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" class="hidden" onchange="importDatabase(event)">
+        </label>
+        
+        <button onclick="exportDatabaseFile()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center gap-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>Exportar DB</span>
+        </button>
+
+        <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+          <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+          <span>Excel Estilizado</span>
+        </button>
+
+        <button onclick="window.print()" class="bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+          <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+          <span>Imprimir / PDF</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navegação de Abas -->
+  <div class="bg-slate-950/80 border-b border-slate-800 no-print sticky top-0 z-30 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6">
+      <button onclick="switchTab('batch-movement')" id="tab-btn-batch-movement" class="py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-sky-500 text-sky-400">
+        <i data-lucide="layers" class="w-4 h-4 text-amber-400"></i>
+        <span>Movimentação em Lote (Multi-Item)</span>
+      </button>
+      <button onclick="switchTab('products')" id="tab-btn-products" class="py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700">
+        <i data-lucide="package" class="w-4 h-4"></i>
+        <span>Catálogo de Produtos</span>
+      </button>
+      <button onclick="switchTab('history')" id="tab-btn-history" class="py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700">
+        <i data-lucide="history" class="w-4 h-4"></i>
+        <span>Histórico de Movimentações</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Container Principal -->
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 print-container">
+
+    <!-- Indicador para Impressão -->
+    <div class="hidden print:block mb-4 border-b pb-2 text-slate-900">
+      <h1 class="text-xl font-bold uppercase">Relatório de Controle de Estoque</h1>
+      <p class="text-xs text-slate-600" id="print-date-subtitle"></p>
+    </div>
+
+    <!-- Cards de Métricas / Dashboard -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 no-print">
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-md flex items-center justify-between">
+        <div>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total de Produtos</p>
+          <h3 class="text-xl font-extrabold text-white mt-1" id="dash-total-products">0</h3>
+        </div>
+        <div class="bg-sky-500/10 text-sky-400 p-2.5 rounded-xl border border-sky-500/20">
+          <i data-lucide="package" class="w-5 h-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-md flex items-center justify-between">
+        <div>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Valor em Estoque (Custo)</p>
+          <h3 class="text-xl font-extrabold text-emerald-400 mt-1" id="dash-total-value">R$ 0,00</h3>
+        </div>
+        <div class="bg-emerald-500/10 text-emerald-400 p-2.5 rounded-xl border border-emerald-500/20">
+          <i data-lucide="dollar-sign" class="w-5 h-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-md flex items-center justify-between">
+        <div>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Estoque Crítico</p>
+          <h3 class="text-xl font-extrabold text-amber-400 mt-1" id="dash-alert-count">0</h3>
+        </div>
+        <div class="bg-amber-500/10 text-amber-400 p-2.5 rounded-xl border border-amber-500/20">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-md flex items-center justify-between">
+        <div>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Entradas (Mês)</p>
+          <h3 class="text-xl font-extrabold text-indigo-400 mt-1" id="dash-month-in">0</h3>
+        </div>
+        <div class="bg-indigo-500/10 text-indigo-400 p-2.5 rounded-xl border border-indigo-500/20">
+          <i data-lucide="arrow-down-left" class="w-5 h-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700/60 shadow-md flex items-center justify-between">
+        <div>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Saídas (Mês)</p>
+          <h3 class="text-xl font-extrabold text-rose-400 mt-1" id="dash-month-out">0</h3>
+        </div>
+        <div class="bg-rose-500/10 text-rose-400 p-2.5 rounded-xl border border-rose-500/20">
+          <i data-lucide="arrow-up-right" class="w-5 h-5"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEÇÃO 1: MOVIMENTAÇÃO EM LOTE (MULTI-ITEM) -->
+    <section id="section-batch-movement" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Lado Esquerdo: Formulário e Busca de Item -->
+      <div class="lg:col-span-5 bg-slate-800/90 rounded-2xl p-5 border border-slate-700 shadow-xl space-y-5">
+        
+        <!-- Toggle Tipo de Operação do Lote -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Tipo de Lote</label>
+          <div class="grid grid-cols-2 gap-3 p-1 bg-slate-900 rounded-xl border border-slate-700">
+            <button type="button" id="type-btn-in" onclick="setMovementType('IN')" class="py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-emerald-600 text-white shadow-md shadow-emerald-600/30">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>ENTRADA EM LOTE (+)</span>
+            </button>
+            <button type="button" id="type-btn-out" onclick="setMovementType('OUT')" class="py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-400 hover:text-slate-200">
+              <i data-lucide="minus-circle" class="w-4 h-4"></i>
+              <span>SAÍDA EM LOTE (-)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Autocomplete Inteligente -->
+        <div class="relative" id="product-search-container">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex justify-between">
+            <span>Adicionar Produto ao Lote *</span>
+            <span class="text-sky-400 font-normal lowercase text-[11px]">Código SKU ou Nome</span>
+          </label>
+          
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            <input type="text" id="fast-product-search" placeholder="Digite SKU/Código de barras ou Nome..." autocomplete="off" class="w-full pl-9 pr-8 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-medium text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 transition">
+            <button type="button" onclick="clearFastSearch()" id="clear-search-btn" class="hidden absolute right-2.5 top-2.5 text-slate-400 hover:text-white">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Dropdown Autocomplete -->
+          <div id="autocomplete-dropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto custom-scroll divide-y divide-slate-800">
+          </div>
+        </div>
+
+        <!-- Card do Produto Selecionado -->
+        <div id="selected-product-card" class="hidden bg-slate-900/90 rounded-xl p-3 border border-sky-500/40 space-y-2">
+          <div class="flex justify-between items-start">
+            <div>
+              <span id="card-sku" class="bg-sky-500/20 text-sky-300 font-mono text-[10px] px-2 py-0.5 rounded font-bold">SKU-000</span>
+              <h4 id="card-name" class="text-sm font-bold text-white mt-1">Nome do Produto</h4>
+            </div>
+            <div class="text-right">
+              <span class="text-[10px] text-slate-400 block">Estoque Atual</span>
+              <span id="card-stock" class="text-sm font-black text-emerald-400">0 UN</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quantidade com Botões Rápidos -->
+        <div class="space-y-2">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400">Quantidade Para Adicionar</label>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="adjustQty(-1)" class="p-2.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-200 transition">
+              <i data-lucide="minus" class="w-4 h-4"></i>
+            </button>
+            <input type="number" id="fast-qty" value="1" min="0.01" step="any" class="w-full text-center py-2 bg-slate-900 border border-slate-700 rounded-xl text-base font-black text-white focus:border-sky-500 focus:outline-none">
+            <button type="button" onclick="adjustQty(1)" class="p-2.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-200 transition">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Botões de Incremento Rápido -->
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            <span class="text-[10px] text-slate-400 self-center mr-1">Atalhos:</span>
+            <button type="button" onclick="addQuickQty(1)" class="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300">+1</button>
+            <button type="button" onclick="addQuickQty(5)" class="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300">+5</button>
+            <button type="button" onclick="addQuickQty(10)" class="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300">+10</button>
+            <button type="button" onclick="addQuickQty(50)" class="px-2 py-0.5 bg-slate-900 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-bold text-slate-300">+50</button>
+          </div>
+        </div>
+
+        <button type="button" onclick="addItemToBatch()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2">
+          <i data-lucide="list-plus" class="w-4 h-4"></i>
+          <span>Incluir no Lote (ENTER)</span>
+        </button>
+
+      </div>
+
+      <!-- Lado Direito: Comanda/Carrinho do Lote Multi-Item -->
+      <div class="lg:col-span-7 bg-slate-800/90 rounded-2xl p-5 border border-slate-700 shadow-xl flex flex-col justify-between space-y-4">
+        <div>
+          <div class="flex justify-between items-center pb-3 border-b border-slate-700">
+            <div>
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="shopping-bag" class="w-4 h-4 text-sky-400"></i>
+                <span>Comanda do Lote Atual</span>
+              </h3>
+              <p class="text-[11px] text-slate-400">Verifique os produtos antes de processar no banco de dados.</p>
+            </div>
+            <button type="button" onclick="clearBatchList()" class="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1">
+              <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+              <span>Limpar Lote</span>
+            </button>
+          </div>
+
+          <!-- Tabela do Lote -->
+          <div class="mt-3 overflow-x-auto custom-scroll max-h-72">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="bg-slate-900 text-slate-400 uppercase text-[10px]">
+                  <th class="p-2 rounded-l-lg">Produto</th>
+                  <th class="p-2 text-right">Preço Unit.</th>
+                  <th class="p-2 text-center">Qtd. Lote</th>
+                  <th class="p-2 text-right">Subtotal</th>
+                  <th class="p-2 text-center rounded-r-lg">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="batch-table-body" class="divide-y divide-slate-700/50 text-slate-200">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Observação Geral & Rodapé do Lote -->
+        <div class="space-y-3 pt-3 border-t border-slate-700">
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Motivo / NFe / Observação Geral do Lote</label>
+            <input type="text" id="batch-general-obs" placeholder="Ex: Compra NF-e 4059, Pedido de Venda #102..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-sky-500">
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900 p-3 rounded-xl border border-slate-700">
+            <div>
+              <span class="text-[10px] text-slate-400 uppercase block font-bold">Total do Lote:</span>
+              <span id="batch-total-items-count" class="text-xs text-slate-300 font-medium">0 itens distintos</span>
+            </div>
+            <div class="text-right">
+              <span id="batch-total-value-sum" class="text-lg font-black text-emerald-400">R$ 0,00</span>
+            </div>
+          </div>
+
+          <button type="button" id="batch-submit-btn" onclick="submitBatchMovement()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+            <span>Confirmar Movimentação em Lote (Ctrl + Enter)</span>
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SEÇÃO 2: CATÁLOGO DE PRODUTOS -->
+    <section id="section-products" class="space-y-4 hidden">
+      <div class="bg-slate-800/80 rounded-2xl p-4 shadow-md border border-slate-700 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3 no-print">
+        <div class="flex flex-wrap items-center gap-3 flex-grow">
+          <div class="relative flex-grow max-w-xs">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            <input type="text" id="filter-search" oninput="renderProducts()" placeholder="Buscar nome ou SKU..." class="w-full pl-9 pr-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-xl text-white focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+
+          <select id="filter-category" onchange="renderProducts()" class="bg-slate-900 border border-slate-700 text-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-sky-500 focus:outline-none">
+            <option value="">Todas as Categorias</option>
+          </select>
+
+          <select id="filter-status" onchange="renderProducts()" class="bg-slate-900 border border-slate-700 text-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-sky-500 focus:outline-none">
+            <option value="">Todos os Status</option>
+            <option value="NORMAL">Estoque Normal</option>
+            <option value="LOW">Estoque Baixo</option>
+            <option value="EMPTY">Sem Estoque</option>
+          </select>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Botão Importar Produtos Excel -->
+          <label class="cursor-pointer bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-3 py-2 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-1.5" title="Importar produtos via planilha Excel">
+            <i data-lucide="file-up" class="w-4 h-4"></i>
+            <span>Importar Excel</span>
+            <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" class="hidden" onchange="importProductsFromExcel(event)">
+          </label>
+
+          <!-- Botão Baixar Modelo Excel -->
+          <button onclick="downloadExcelTemplate()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold px-3 py-2 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-1.5" title="Baixar modelo de planilha Excel">
+            <i data-lucide="file-spreadsheets" class="w-4 h-4"></i>
+            <span>Modelo Excel</span>
+          </button>
+
+          <button onclick="openProductModal()" class="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-4 py-2 rounded-xl text-xs shadow-md shadow-sky-500/20 transition flex items-center justify-center gap-2">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Novo Produto</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl border border-slate-700 shadow-md overflow-hidden">
+        <div class="overflow-x-auto custom-scroll">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-950 text-slate-300 text-xs border-b border-slate-800">
+                <th class="p-3 font-semibold">SKU / Cód. Barras</th>
+                <th class="p-3 font-semibold">Produto</th>
+                <th class="p-3 font-semibold">Categoria</th>
+                <th class="p-3 font-semibold text-right">P. Custo</th>
+                <th class="p-3 font-semibold text-right">P. Venda</th>
+                <th class="p-3 font-semibold text-center">Estoque Atual</th>
+                <th class="p-3 font-semibold text-center">Est. Mínimo</th>
+                <th class="p-3 font-semibold text-center">Status</th>
+                <th class="p-3 font-semibold text-center no-print">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="products-table-body" class="divide-y divide-slate-700/50 text-xs text-slate-200">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEÇÃO 3: HISTÓRICO DE MOVIMENTAÇÕES -->
+    <section id="section-history" class="space-y-4 hidden">
+      <div class="bg-slate-800/80 rounded-2xl p-4 shadow-md border border-slate-700 flex flex-wrap items-center justify-between gap-3 no-print">
+        <div class="flex flex-wrap items-center gap-3">
+          <input type="date" id="history-filter-date" onchange="renderHistory()" class="bg-slate-900 border border-slate-700 text-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          <select id="history-filter-type" onchange="renderHistory()" class="bg-slate-900 border border-slate-700 text-slate-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-sky-500 focus:outline-none">
+            <option value="">Todas as Movimentações</option>
+            <option value="IN">Apenas Entradas</option>
+            <option value="OUT">Apenas Saídas</option>
+          </select>
+        </div>
+        <button onclick="clearHistory()" class="text-xs text-rose-400 hover:text-rose-300 font-semibold px-3 py-1.5 rounded-lg border border-rose-500/30 hover:bg-rose-500/10 transition">
+          Limpar Histórico
+        </button>
+      </div>
+
+      <div class="bg-slate-800/80 rounded-2xl border border-slate-700 shadow-md overflow-hidden">
+        <div class="overflow-x-auto custom-scroll">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-950 text-slate-300 text-xs border-b border-slate-800">
+                <th class="p-3 font-semibold">Data / Hora</th>
+                <th class="p-3 font-semibold">Tipo</th>
+                <th class="p-3 font-semibold">SKU / Produto</th>
+                <th class="p-3 font-semibold text-center">Qtd. Movimentada</th>
+                <th class="p-3 font-semibold text-center">Estoque Ant. → Final</th>
+                <th class="p-3 font-semibold">Observação / Lote</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body" class="divide-y divide-slate-700/50 text-xs text-slate-200">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="bg-slate-950 border-t border-slate-800 py-4 mt-auto no-print">
+    <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400 flex flex-col sm:flex-row justify-between items-center gap-2">
+      <span>StockMaster Pro Multi-Item &copy; <span id="current-year-footer"></span></span>
+      <p class="text-xs font-semibold text-slate-300">
+        Desenvolvido por <a href="https://portfolio-felipe-nu.vercel.app/" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:underline hover:text-sky-300">Felipe</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- MODAL: CADASTRO / EDIÇÃO DE PRODUTO -->
+  <div id="product-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4 no-print">
+    <div class="bg-slate-900 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-700 flex flex-col">
+      <div class="p-4 bg-slate-950 text-white flex justify-between items-center border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <i data-lucide="package-plus" class="w-5 h-5 text-sky-400"></i>
+          <h3 id="product-modal-title" class="font-bold text-sm">Cadastrar Novo Produto</h3>
+        </div>
+        <button onclick="closeProductModal()" class="text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="saveProduct(event)" class="p-5 space-y-4 text-xs">
+        <input type="hidden" id="prod-id">
+
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-1">
+            <label class="block font-semibold text-slate-400 mb-1">Código / SKU *</label>
+            <input type="text" id="prod-sku" required placeholder="EX: 78912345" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none uppercase font-mono">
+          </div>
+          <div class="col-span-2">
+            <label class="block font-semibold text-slate-400 mb-1">Nome do Produto *</label>
+            <input type="text" id="prod-name" required placeholder="Nome descritivo do item" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Categoria *</label>
+            <input type="text" id="prod-category" required placeholder="Ex: Bebidas, Ferramentas" list="category-suggestions" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+            <datalist id="category-suggestions"></datalist>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Unidade de Medida *</label>
+            <select id="prod-unit" required class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+              <option value="UN">Unidade (UN)</option>
+              <option value="KG">Quilograma (KG)</option>
+              <option value="CX">Caixa (CX)</option>
+              <option value="PCT">Pacote (PCT)</option>
+              <option value="LT">Litro (LT)</option>
+              <option value="M">Metro (M)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Preço de Custo (R$) *</label>
+            <input type="number" id="prod-cost" step="0.01" min="0" required placeholder="0.00" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Preço de Venda (R$) *</label>
+            <input type="number" id="prod-price" step="0.01" min="0" required placeholder="0.00" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Estoque Inicial *</label>
+            <input type="number" id="prod-stock" min="0" step="any" required placeholder="0" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-400 mb-1">Estoque Mínimo (Alerta) *</label>
+            <input type="number" id="prod-min-stock" min="0" step="any" required placeholder="5" class="w-full bg-slate-800 border border-slate-700 text-white rounded-xl p-2.5 focus:ring-1 focus:ring-sky-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 flex justify-end gap-2">
+          <button type="button" onclick="closeProductModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-4 py-2 rounded-xl transition">Cancelar</button>
+          <button type="submit" class="bg-sky-600 hover:bg-sky-500 text-white font-semibold px-5 py-2 rounded-xl transition shadow-md shadow-sky-500/20">Salvar Produto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICAÇÃO -->
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-950 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-3 text-xs font-medium translate-y-20 opacity-0 transition-all duration-300 z-50 no-print">
+    <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400" id="toast-icon"></i>
+    <span id="toast-message">Notificação</span>
+  </div>
+
+  <script>
+    let db = null;
+    let SQL = null;
+    let currentBatchType = 'IN';
+    let selectedProduct = null;
+    let autocompleteIndex = -1;
+    let searchProductsList = [];
+    let batchCart = [];
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      lucide.createIcons();
+      document.getElementById('current-year-footer').textContent = new Date().getFullYear();
+      document.getElementById('print-date-subtitle').textContent = `Gerado em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`;
+      
+      await initSQLite();
+      setupFastSearchListeners();
+    });
+
+    async function initSQLite() {
+      try {
+        const config = {
+          locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+        };
+        SQL = await initSqlJs(config);
+
+        const savedDb = localStorage.getItem('stock_sqlite_db_v2');
+        if (savedDb) {
+          const uInt8Array = new Uint8Array(JSON.parse(savedDb));
+          db = new SQL.Database(uInt8Array);
+        } else {
+          db = new SQL.Database();
+          seedInitialData();
+        }
+
+        setupTables();
+        refreshAllData();
+        showToast("Banco de dados SQLite pronto!");
+      } catch (err) {
+        console.error("Erro ao inicializar SQLite:", err);
+        showToast("Erro ao carregar banco de dados.", "error");
+      }
+    }
+
+    function setupTables() {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sku TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          unit TEXT DEFAULT 'UN',
+          cost_price REAL DEFAULT 0,
+          sell_price REAL DEFAULT 0,
+          current_stock REAL DEFAULT 0,
+          min_stock REAL DEFAULT 0
+        );
+      `);
+
+      db.run(`
+        CREATE TABLE IF NOT EXISTS stock_movements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          quantity REAL NOT NULL,
+          initial_stock REAL NOT NULL,
+          final_stock REAL NOT NULL,
+          date TEXT NOT NULL,
+          observation TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+      `);
+
+      saveDbToLocalStorage();
+    }
+
+    function seedInitialData() {
+      setupTables();
+      db.run(`
+        INSERT INTO products (sku, name, category, unit, cost_price, sell_price, current_stock, min_stock)
+        VALUES 
+        ('78910001', 'Caderno Universitário 10 Matérias', 'Papelaria', 'UN', 12.50, 24.90, 45, 10),
+        ('78910002', 'Caneta Esferográfica Azul 0.7mm', 'Papelaria', 'UN', 0.80, 2.50, 8, 20),
+        ('78910003', 'Notebook Dell Inspiron 15', 'Eletrônicos', 'UN', 2800.00, 3800.00, 3, 5),
+        ('78910004', 'Teclado Mecânico RGB', 'Eletrônicos', 'UN', 110.00, 220.00, 15, 5);
+      `);
+
+      const today = new Date().toISOString().split('T')[0];
+      db.run(`
+        INSERT INTO stock_movements (product_id, type, quantity, initial_stock, final_stock, date, observation)
+        VALUES 
+        (1, 'IN', 45, 0, 45, '${today}', 'Estoque inicial'),
+        (2, 'IN', 8, 0, 8, '${today}', 'Estoque inicial'),
+        (3, 'IN', 3, 0, 3, '${today}', 'Compra NF 883'),
+        (4, 'IN', 15, 0, 15, '${today}', 'Compra NF 883');
+      `);
+    }
+
+    function saveDbToLocalStorage() {
+      if (!db) return;
+      try {
+        const data = db.export();
+        const buffer = Array.from(data);
+        localStorage.setItem('stock_sqlite_db_v2', JSON.stringify(buffer));
+      } catch (e) {
+        console.warn("Erro ao salvar no LocalStorage:", e);
+      }
+    }
+
+    function refreshAllData() {
+      renderDashboard();
+      renderProducts();
+      populateSelectsAndCategories();
+      renderHistory();
+      loadProductsForFastSearch();
+      renderBatchCartTable();
+    }
+
+    function switchTab(tab) {
+      document.getElementById('section-batch-movement').classList.add('hidden');
+      document.getElementById('section-products').classList.add('hidden');
+      document.getElementById('section-history').classList.add('hidden');
+
+      const btnFast = document.getElementById('tab-btn-batch-movement');
+      const btnProd = document.getElementById('tab-btn-products');
+      const btnHist = document.getElementById('tab-btn-history');
+
+      [btnFast, btnProd, btnHist].forEach(b => {
+        b.className = "py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700";
+      });
+
+      if (tab === 'batch-movement') {
+        document.getElementById('section-batch-movement').classList.remove('hidden');
+        btnFast.className = "py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-sky-500 text-sky-400";
+        setTimeout(() => document.getElementById('fast-product-search').focus(), 100);
+      } else if (tab === 'products') {
+        document.getElementById('section-products').classList.remove('hidden');
+        btnProd.className = "py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-sky-500 text-sky-400";
+      } else if (tab === 'history') {
+        document.getElementById('section-history').classList.remove('hidden');
+        btnHist.className = "py-3 px-2 border-b-2 font-semibold text-sm flex items-center gap-2 border-sky-500 text-sky-400";
+      }
+    }
+
+    function renderDashboard() {
+      const totalRes = db.exec("SELECT COUNT(*) FROM products")[0];
+      const alertRes = db.exec("SELECT COUNT(*) FROM products WHERE current_stock <= min_stock")[0];
+      const valueRes = db.exec("SELECT SUM(current_stock * cost_price) FROM products")[0];
+
+      const currentMonthStr = new Date().toISOString().substring(0, 7);
+      const inRes = db.exec(`SELECT SUM(quantity) FROM stock_movements WHERE type = 'IN' AND date LIKE '${currentMonthStr}%'`)[0];
+      const outRes = db.exec(`SELECT SUM(quantity) FROM stock_movements WHERE type = 'OUT' AND date LIKE '${currentMonthStr}%'`)[0];
+
+      document.getElementById('dash-total-products').textContent = totalRes ? totalRes.values[0][0] : 0;
+      document.getElementById('dash-alert-count').textContent = alertRes ? alertRes.values[0][0] : 0;
+      
+      const totalStockValue = (valueRes && valueRes.values[0][0]) ? valueRes.values[0][0] : 0;
+      document.getElementById('dash-total-value').textContent = formatCurrency(totalStockValue);
+
+      document.getElementById('dash-month-in').textContent = (inRes && inRes.values[0][0]) ? inRes.values[0][0] : 0;
+      document.getElementById('dash-month-out').textContent = (outRes && outRes.values[0][0]) ? outRes.values[0][0] : 0;
+    }
+
+    function setMovementType(type) {
+      currentBatchType = type;
+      const btnIn = document.getElementById('type-btn-in');
+      const btnOut = document.getElementById('type-btn-out');
+      const submitBtn = document.getElementById('batch-submit-btn');
+
+      if (type === 'IN') {
+        btnIn.className = "py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-emerald-600 text-white shadow-md shadow-emerald-600/30";
+        btnOut.className = "py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-400 hover:text-slate-200";
+        submitBtn.className = "w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2";
+        submitBtn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>Confirmar ENTRADA em Lote (Ctrl + Enter)</span>`;
+      } else {
+        btnOut.className = "py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-rose-600 text-white shadow-md shadow-rose-600/30";
+        btnIn.className = "py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition bg-slate-800 text-slate-400 hover:text-slate-200";
+        submitBtn.className = "w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2";
+        submitBtn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>Confirmar SAÍDA em Lote (Ctrl + Enter)</span>`;
+      }
+      lucide.createIcons();
+      renderBatchCartTable();
+    }
+
+    function loadProductsForFastSearch() {
+      const res = db.exec("SELECT id, sku, name, category, current_stock, unit, cost_price, sell_price FROM products ORDER BY name ASC");
+      searchProductsList = [];
+      if (res && res[0]) {
+        searchProductsList = res[0].values.map(r => ({
+          id: r[0], sku: r[1], name: r[2], category: r[3], stock: r[4], unit: r[5], costPrice: r[6], sellPrice: r[7]
+        }));
+      }
+    }
+
+    function setupFastSearchListeners() {
+      const input = document.getElementById('fast-product-search');
+      const dropdown = document.getElementById('autocomplete-dropdown');
+      const qtyInput = document.getElementById('fast-qty');
+
+      input.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        if (!query) {
+          dropdown.classList.add('hidden');
+          document.getElementById('clear-search-btn').classList.add('hidden');
+          return;
+        }
+
+        document.getElementById('clear-search-btn').classList.remove('hidden');
+
+        const matches = searchProductsList.filter(p => 
+          p.sku.toLowerCase().includes(query) || p.name.toLowerCase().includes(query)
+        );
+
+        renderAutocompleteDropdown(matches);
+      });
+
+      input.addEventListener('keydown', (e) => {
+        const items = dropdown.querySelectorAll('.autocomplete-item');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (items.length === 0) return;
+          autocompleteIndex = (autocompleteIndex + 1) % items.length;
+          highlightAutocompleteItem(items);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (items.length === 0) return;
+          autocompleteIndex = (autocompleteIndex - 1 + items.length) % items.length;
+          highlightAutocompleteItem(items);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          if (!dropdown.classList.contains('hidden') && autocompleteIndex >= 0 && items[autocompleteIndex]) {
+            items[autocompleteIndex].click();
+          } else if (input.value.trim() !== '') {
+            const exactMatch = searchProductsList.find(p => p.sku.toLowerCase() === input.value.trim().toLowerCase());
+            if (exactMatch) {
+              selectProductForFastMovement(exactMatch);
+            } else if (searchProductsList.length > 0) {
+              const matches = searchProductsList.filter(p => p.sku.toLowerCase().includes(input.value.trim().toLowerCase()) || p.name.toLowerCase().includes(input.value.trim().toLowerCase()));
+              if (matches.length > 0) selectProductForFastMovement(matches[0]);
+            }
+          } else if (selectedProduct) {
+            qtyInput.focus();
+            qtyInput.select();
+          }
+        }
+      });
+
+      qtyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addItemToBatch();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+          e.preventDefault();
+          submitBatchMovement();
+        }
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!document.getElementById('product-search-container').contains(e.target)) {
+          dropdown.classList.add('hidden');
+        }
+      });
+    }
+
+    function renderAutocompleteDropdown(matches) {
+      const dropdown = document.getElementById('autocomplete-dropdown');
+      dropdown.innerHTML = '';
+      autocompleteIndex = -1;
+
+      if (matches.length === 0) {
+        dropdown.innerHTML = `<div class="p-3 text-xs text-slate-500 text-center">Nenhum produto encontrado.</div>`;
+        dropdown.classList.remove('hidden');
+        return;
+      }
+
+      matches.forEach((p) => {
+        const div = document.createElement('div');
+        div.className = "p-2.5 hover:bg-slate-800 cursor-pointer flex items-center justify-between text-xs transition autocomplete-item";
+        div.onclick = () => selectProductForFastMovement(p);
+        div.innerHTML = `
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-mono bg-sky-500/20 text-sky-400 font-bold px-1.5 py-0.5 rounded text-[10px]">${p.sku}</span>
+              <span class="font-bold text-white">${p.name}</span>
+            </div>
+            <span class="text-[10px] text-slate-400">${p.category}</span>
+          </div>
+          <div class="text-right font-bold text-emerald-400 text-xs">
+            ${p.stock} ${p.unit}
+          </div>
+        `;
+        dropdown.appendChild(div);
+      });
+
+      dropdown.classList.remove('hidden');
+    }
+
+    function highlightAutocompleteItem(items) {
+      items.forEach((item, idx) => {
+        if (idx === autocompleteIndex) {
+          item.classList.add('bg-slate-800', 'border-l-4', 'border-sky-500');
+          item.scrollIntoView({ block: 'nearest' });
+        } else {
+          item.classList.remove('bg-slate-800', 'border-l-4', 'border-sky-500');
+        }
+      });
+    }
+
+    function selectProductForFastMovement(p) {
+      selectedProduct = p;
+      document.getElementById('fast-product-search').value = `${p.sku} - ${p.name}`;
+      document.getElementById('autocomplete-dropdown').classList.add('hidden');
+
+      document.getElementById('card-sku').textContent = p.sku;
+      document.getElementById('card-name').textContent = p.name;
+      document.getElementById('card-stock').textContent = `${p.stock} ${p.unit}`;
+      document.getElementById('selected-product-card').classList.remove('hidden');
+
+      const qtyInput = document.getElementById('fast-qty');
+      qtyInput.focus();
+      qtyInput.select();
+    }
+
+    function clearFastSearch() {
+      selectedProduct = null;
+      document.getElementById('fast-product-search').value = '';
+      document.getElementById('selected-product-card').classList.add('hidden');
+      document.getElementById('autocomplete-dropdown').classList.add('hidden');
+      document.getElementById('clear-search-btn').classList.add('hidden');
+      document.getElementById('fast-product-search').focus();
+    }
+
+    function adjustQty(val) {
+      const input = document.getElementById('fast-qty');
+      let current = parseFloat(input.value) || 0;
+      current = Math.max(0.01, current + val);
+      input.value = current;
+    }
+
+    function addQuickQty(val) {
+      const input = document.getElementById('fast-qty');
+      let current = parseFloat(input.value) || 0;
+      input.value = current + val;
+    }
+
+    function addItemToBatch() {
+      if (!selectedProduct) {
+        showToast("Selecione um produto antes de incluir no lote.", "error");
+        document.getElementById('fast-product-search').focus();
+        return;
+      }
+
+      const qty = parseFloat(document.getElementById('fast-qty').value);
+      if (!qty || qty <= 0) {
+        showToast("Informe uma quantidade válida superior a zero.", "error");
+        return;
+      }
+
+      const existingIndex = batchCart.findIndex(item => item.id === selectedProduct.id);
+      if (existingIndex >= 0) {
+        batchCart[existingIndex].quantity += qty;
+      } else {
+        batchCart.push({
+          id: selectedProduct.id,
+          sku: selectedProduct.sku,
+          name: selectedProduct.name,
+          unit: selectedProduct.unit,
+          currentStock: selectedProduct.stock,
+          unitPrice: currentBatchType === 'IN' ? selectedProduct.costPrice : selectedProduct.sellPrice,
+          quantity: qty
+        });
+      }
+
+      renderBatchCartTable();
+      showToast(`Item "${selectedProduct.name}" incluído no lote!`);
+
+      clearFastSearch();
+      document.getElementById('fast-qty').value = '1';
+    }
+
+    function updateBatchItemQty(id, newQty) {
+      const qty = parseFloat(newQty);
+      if (isNaN(qty) || qty <= 0) return;
+      const item = batchCart.find(i => i.id === id);
+      if (item) {
+        item.quantity = qty;
+        renderBatchCartTable();
+      }
+    }
+
+    function removeBatchItem(id) {
+      batchCart = batchCart.filter(item => item.id !== id);
+      renderBatchCartTable();
+      showToast("Item removido do lote.");
+    }
+
+    function clearBatchList() {
+      batchCart = [];
+      renderBatchCartTable();
+    }
+
+    function renderBatchCartTable() {
+      const tbody = document.getElementById('batch-table-body');
+      tbody.innerHTML = '';
+
+      if (batchCart.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-slate-500">Nenhum produto adicionado ao lote. Use a busca ao lado para incluir itens.</td></tr>`;
+        document.getElementById('batch-total-items-count').textContent = "0 itens distintos";
+        document.getElementById('batch-total-value-sum').textContent = formatCurrency(0);
+        return;
+      }
+
+      let totalSum = 0;
+
+      batchCart.forEach(item => {
+        const subtotal = item.quantity * item.unitPrice;
+        totalSum += subtotal;
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-700/20 transition";
+        tr.innerHTML = `
+          <td class="p-2">
+            <span class="font-bold text-white block">${item.name}</span>
+            <span class="font-mono text-[10px] text-sky-400">${item.sku}</span>
+          </td>
+          <td class="p-2 text-right font-medium text-slate-300">${formatCurrency(item.unitPrice)}</td>
+          <td class="p-2 text-center">
+            <input type="number" value="${item.quantity}" min="0.01" step="any" onchange="updateBatchItemQty(${item.id}, this.value)" class="w-16 text-center bg-slate-900 border border-slate-700 rounded p-1 text-xs text-white focus:outline-none focus:border-sky-500 font-bold">
+            <span class="text-[10px] text-slate-400 block">${item.unit}</span>
+          </td>
+          <td class="p-2 text-right font-bold text-emerald-400">${formatCurrency(subtotal)}</td>
+          <td class="p-2 text-center">
+            <button onclick="removeBatchItem(${item.id})" class="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-slate-700/50 transition">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('batch-total-items-count').textContent = `${batchCart.length} item(ns) distinto(s)`;
+      document.getElementById('batch-total-value-sum').textContent = formatCurrency(totalSum);
+      lucide.createIcons();
+    }
+
+    function submitBatchMovement() {
+      if (batchCart.length === 0) {
+        showToast("O lote está vazio. Adicione pelo menos um produto.", "error");
+        return;
+      }
+
+      const generalObs = document.getElementById('batch-general-obs').value.trim();
+      const today = new Date().toISOString().split('T')[0];
+
+      if (currentBatchType === 'OUT') {
+        for (const item of batchCart) {
+          const stmt = db.prepare("SELECT current_stock, name FROM products WHERE id = :id");
+          stmt.bind({ ':id': item.id });
+          if (stmt.step()) {
+            const prod = stmt.getAsObject();
+            if (prod.current_stock < item.quantity) {
+              showToast(`Estoque insuficiente para "${prod.name}"! Atual: ${prod.current_stock}`, "error");
+              stmt.free();
+              return;
+            }
+          }
+          stmt.free();
+        }
+      }
+
+      try {
+        db.run("BEGIN TRANSACTION");
+
+        for (const item of batchCart) {
+          const stmt = db.prepare("SELECT current_stock FROM products WHERE id = :id");
+          stmt.bind({ ':id': item.id });
+          let initialStock = 0;
+          if (stmt.step()) {
+            initialStock = stmt.getAsObject().current_stock;
+          }
+          stmt.free();
+
+          const finalStock = currentBatchType === 'IN' ? initialStock + item.quantity : initialStock - item.quantity;
+          const obs = generalObs ? `[Lote] ${generalObs}` : `[Lote Multi-Item]`;
+
+          db.run("UPDATE products SET current_stock = ? WHERE id = ?", [finalStock, item.id]);
+
+          db.run(`
+            INSERT INTO stock_movements (product_id, type, quantity, initial_stock, final_stock, date, observation)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [item.id, currentBatchType, item.quantity, initialStock, finalStock, today, obs]);
+        }
+
+        db.run("COMMIT");
+        saveDbToLocalStorage();
+        refreshAllData();
+
+        showToast(currentBatchType === 'IN' ? "Entrada em lote processada com sucesso!" : "Saída em lote processada com sucesso!");
+
+        batchCart = [];
+        document.getElementById('batch-general-obs').value = '';
+        renderBatchCartTable();
+        document.getElementById('fast-product-search').focus();
+      } catch (err) {
+        db.run("ROLLBACK");
+        console.error("Erro na transação:", err);
+        showToast("Erro ao processar lote no banco de dados.", "error");
+      }
+    }
+
+    // --- FUNÇÕES NOVAS: IMPORTAR E EXPORTAR MODELO DE PRODUTOS VIA EXCEL ---
+
+    // 1. Baixa uma planilha de exemplo para preenchimento
+    function downloadExcelTemplate() {
+      const headers = [
+        ["SKU", "Nome", "Categoria", "Unidade", "Preco Custo", "Preco Venda", "Estoque Atual", "Estoque Minimo"],
+        ["78910005", "Grampeador de Mesa 26/6", "Papelaria", "UN", 15.00, 32.50, 20, 5],
+        ["78910006", "Mouse Sem Fio USB", "Eletrônicos", "UN", 25.00, 50.00, 10, 3]
+      ];
+
+      const worksheet = XLSX.utils.aoa_to_sheet(headers);
+      worksheet['!cols'] = [
+        { wch: 15 }, { wch: 30 }, { wch: 18 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Modelo_Importacao");
+      XLSX.writeFile(workbook, "Modelo_Importacao_Produtos.xlsx");
+      showToast("Modelo de planilha baixado!");
+    }
+
+    // 2. Lê a planilha selecionada e cadastra/atualiza os produtos
+    function importProductsFromExcel(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+          if (rows.length === 0) {
+            showToast("A planilha importada está vazia.", "error");
+            return;
+          }
+
+          let addedCount = 0;
+          let updatedCount = 0;
+
+          db.run("BEGIN TRANSACTION");
+
+          rows.forEach(row => {
+            // Busca o valor da coluna independentemente de variações no nome do cabeçalho
+            const sku = String(row['SKU'] || row['sku'] || row['Código'] || row['Codigo'] || '').trim().toUpperCase();
+            const name = String(row['Nome'] || row['nome'] || row['Produto'] || row['produto'] || '').trim();
+            const category = String(row['Categoria'] || row['categoria'] || 'Geral').trim();
+            const unit = String(row['Unidade'] || row['unidade'] || 'UN').trim().toUpperCase();
+            const cost = parseFloat(row['Preco Custo'] || row['Preço Custo'] || row['cost_price'] || 0) || 0;
+            const price = parseFloat(row['Preco Venda'] || row['Preço Venda'] || row['sell_price'] || 0) || 0;
+            const stock = parseFloat(row['Estoque Atual'] || row['current_stock'] || 0) || 0;
+            const minStock = parseFloat(row['Estoque Minimo'] || row['Estoque Mínimo'] || row['min_stock'] || 5) || 0;
+
+            if (!sku || !name) return; // Ignora linhas sem código ou nome
+
+            // Verifica se o produto já existe no banco
+            const checkStmt = db.prepare("SELECT id FROM products WHERE sku = :sku");
+            checkStmt.bind({ ':sku': sku });
+            const exists = checkStmt.step();
+            checkStmt.free();
+
+            if (exists) {
+              db.run(`
+                UPDATE products 
+                SET name = ?, category = ?, unit = ?, cost_price = ?, sell_price = ?, current_stock = ?, min_stock = ?
+                WHERE sku = ?
+              `, [name, category, unit, cost, price, stock, minStock, sku]);
+              updatedCount++;
+            } else {
+              db.run(`
+                INSERT INTO products (sku, name, category, unit, cost_price, sell_price, current_stock, min_stock)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `, [sku, name, category, unit, cost, price, stock, minStock]);
+              addedCount++;
+            }
+          });
+
+          db.run("COMMIT");
+          saveDbToLocalStorage();
+          refreshAllData();
+
+          showToast(`Importação concluída! ${addedCount} novos, ${updatedCount} atualizados.`);
+        } catch (err) {
+          db.run("ROLLBACK");
+          console.error("Erro na importação:", err);
+          showToast("Erro ao processar planilha. Verifique o formato.", "error");
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+      event.target.value = ''; // Limpa o input de arquivo
+    }
+
+    // --- CATALOGO DE PRODUTOS ---
+    function renderProducts() {
+      const search = document.getElementById('filter-search').value.toLowerCase();
+      const category = document.getElementById('filter-category').value;
+      const statusFilter = document.getElementById('filter-status').value;
+
+      let query = "SELECT * FROM products WHERE 1=1";
+      const params = [];
+
+      if (category) {
+        query += " AND category = ?";
+        params.push(category);
+      }
+
+      const res = db.exec(query, params);
+      const tbody = document.getElementById('products-table-body');
+      tbody.innerHTML = '';
+
+      if (!res || res[0].values.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-500">Nenhum produto cadastrado.</td></tr>`;
+        return;
+      }
+
+      res[0].values.forEach(row => {
+        const [id, sku, name, cat, unit, cost, price, stock, minStock] = row;
+
+        if (search && !name.toLowerCase().includes(search) && !sku.toLowerCase().includes(search)) {
+          return;
+        }
+
+        let status = 'NORMAL';
+        let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Normal</span>';
+
+        if (stock <= 0) {
+          status = 'EMPTY';
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">Sem Estoque</span>';
+        } else if (stock <= minStock) {
+          status = 'LOW';
+          statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">Estoque Baixo</span>';
+        }
+
+        if (statusFilter && status !== statusFilter) {
+          return;
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-700/30 transition border-b border-slate-700/40";
+        tr.innerHTML = `
+          <td class="p-3 font-mono font-bold text-sky-400">${sku}</td>
+          <td class="p-3 font-bold text-white">${name}</td>
+          <td class="p-3 text-slate-400">${cat}</td>
+          <td class="p-3 text-right font-medium text-slate-300">${formatCurrency(cost)}</td>
+          <td class="p-3 text-right font-medium text-slate-200">${formatCurrency(price)}</td>
+          <td class="p-3 text-center font-extrabold ${stock <= minStock ? 'text-amber-400' : 'text-emerald-400'}">${stock} <span class="text-xs font-normal text-slate-400">${unit}</span></td>
+          <td class="p-3 text-center text-slate-400">${minStock} ${unit}</td>
+          <td class="p-3 text-center">${statusBadge}</td>
+          <td class="p-3 text-center no-print">
+            <div class="flex items-center justify-center gap-1">
+              <button onclick="editProduct(${id})" class="p-1.5 text-slate-400 hover:text-sky-400 hover:bg-slate-700 rounded-lg transition" title="Editar">
+                <i data-lucide="pencil" class="w-4 h-4"></i>
+              </button>
+              <button onclick="deleteProduct(${id})" class="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-700 rounded-lg transition" title="Excluir">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      lucide.createIcons();
+    }
+
+    function populateSelectsAndCategories() {
+      const res = db.exec("SELECT DISTINCT category FROM products ORDER BY category ASC");
+      const catSelect = document.getElementById('filter-category');
+      const datalist = document.getElementById('category-suggestions');
+
+      const currentCat = catSelect.value;
+      catSelect.innerHTML = '<option value="">Todas as Categorias</option>';
+      datalist.innerHTML = '';
+
+      if (res && res[0]) {
+        res[0].values.forEach(r => {
+          const cat = r[0];
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = cat;
+          if (cat === currentCat) opt.selected = true;
+          catSelect.appendChild(opt);
+
+          const dOpt = document.createElement('option');
+          dOpt.value = cat;
+          datalist.appendChild(dOpt);
+        });
+      }
+    }
+
+    function openProductModal(id = null) {
+      document.getElementById('prod-id').value = '';
+      document.getElementById('prod-sku').value = '';
+      document.getElementById('prod-name').value = '';
+      document.getElementById('prod-category').value = '';
+      document.getElementById('prod-unit').value = 'UN';
+      document.getElementById('prod-cost').value = '';
+      document.getElementById('prod-price').value = '';
+      document.getElementById('prod-stock').value = '';
+      document.getElementById('prod-min-stock').value = '5';
+
+      if (id) {
+        const stmt = db.prepare("SELECT * FROM products WHERE id = :id");
+        stmt.bind({ ':id': id });
+        if (stmt.step()) {
+          const row = stmt.getAsObject();
+          document.getElementById('prod-id').value = row.id;
+          document.getElementById('prod-sku').value = row.sku;
+          document.getElementById('prod-name').value = row.name;
+          document.getElementById('prod-category').value = row.category;
+          document.getElementById('prod-unit').value = row.unit;
+          document.getElementById('prod-cost').value = row.cost_price;
+          document.getElementById('prod-price').value = row.sell_price;
+          document.getElementById('prod-stock').value = row.current_stock;
+          document.getElementById('prod-min-stock').value = row.min_stock;
+        }
+        stmt.free();
+        document.getElementById('product-modal-title').textContent = "Editar Produto";
+      } else {
+        document.getElementById('product-modal-title').textContent = "Cadastrar Novo Produto";
+      }
+
+      document.getElementById('product-modal').classList.remove('hidden');
+    }
+
+    function closeProductModal() {
+      document.getElementById('product-modal').classList.add('hidden');
+    }
+
+    function saveProduct(e) {
+      e.preventDefault();
+      const id = document.getElementById('prod-id').value;
+      const sku = document.getElementById('prod-sku').value.trim().toUpperCase();
+      const name = document.getElementById('prod-name').value.trim();
+      const category = document.getElementById('prod-category').value.trim();
+      const unit = document.getElementById('prod-unit').value;
+      const cost = parseFloat(document.getElementById('prod-cost').value) || 0;
+      const price = parseFloat(document.getElementById('prod-price').value) || 0;
+      const stock = parseFloat(document.getElementById('prod-stock').value) || 0;
+      const minStock = parseFloat(document.getElementById('prod-min-stock').value) || 0;
+
+      try {
+        if (id) {
+          db.run(`
+            UPDATE products 
+            SET sku = ?, name = ?, category = ?, unit = ?, cost_price = ?, sell_price = ?, current_stock = ?, min_stock = ?
+            WHERE id = ?
+          `, [sku, name, category, unit, cost, price, stock, minStock, id]);
+          showToast("Produto atualizado com sucesso!");
+        } else {
+          db.run(`
+            INSERT INTO products (sku, name, category, unit, cost_price, sell_price, current_stock, min_stock)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `, [sku, name, category, unit, cost, price, stock, minStock]);
+          showToast("Novo produto cadastrado!");
+        }
+
+        saveDbToLocalStorage();
+        closeProductModal();
+        refreshAllData();
+      } catch (err) {
+        showToast("Erro: O Código/SKU já existe no sistema!", "error");
+      }
+    }
+
+    function editProduct(id) {
+      openProductModal(id);
+    }
+
+    function deleteProduct(id) {
+      if (confirm("Tem certeza que deseja excluir este produto? Todo o histórico de movimentações dele será mantido.")) {
+        db.run("DELETE FROM products WHERE id = ?", [id]);
+        saveDbToLocalStorage();
+        refreshAllData();
+        showToast("Produto excluído do sistema.");
+      }
+    }
+
+    function renderHistory() {
+      const filterDate = document.getElementById('history-filter-date').value;
+      const filterType = document.getElementById('history-filter-type').value;
+
+      let query = `
+        SELECT m.date, m.type, m.quantity, m.initial_stock, m.final_stock, m.observation, p.sku, p.name, p.unit 
+        FROM stock_movements m
+        JOIN products p ON m.product_id = p.id
+        WHERE 1=1
+      `;
+      const params = [];
+
+      if (filterDate) {
+        query += " AND m.date = ?";
+        params.push(filterDate);
+      }
+      if (filterType) {
+        query += " AND m.type = ?";
+        params.push(filterType);
+      }
+
+      query += " ORDER BY m.id DESC";
+
+      const res = db.exec(query, params);
+      const tbody = document.getElementById('history-table-body');
+      tbody.innerHTML = '';
+
+      if (!res || res[0].values.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-500">Nenhuma movimentação registrada.</td></tr>`;
+        return;
+      }
+
+      res[0].values.forEach(row => {
+        const [date, type, qty, initStock, finalStock, obs, sku, name, unit] = row;
+        const isIn = type === 'IN';
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-700/30 transition border-b border-slate-700/40";
+        tr.innerHTML = `
+          <td class="p-3 text-slate-400 font-mono">${formatDate(date)}</td>
+          <td class="p-3">
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isIn ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}">
+              ${isIn ? 'ENTRADA (+)' : 'SAÍDA (-)'}
+            </span>
+          </td>
+          <td class="p-3"><strong class="font-mono text-sky-400">${sku}</strong> <span class="text-white font-medium">- ${name}</span></td>
+          <td class="p-3 text-center font-black ${isIn ? 'text-emerald-400' : 'text-rose-400'}">
+            ${isIn ? '+' : '-'}${qty} ${unit}
+          </td>
+          <td class="p-3 text-center text-slate-400 font-mono">
+            ${initStock} → <span class="text-white font-bold">${finalStock} ${unit}</span>
+          </td>
+          <td class="p-3 text-slate-400">${obs || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function clearHistory() {
+      if (confirm("Deseja realmente apagar todo o histórico de movimentações? (Os saldos atuais de estoque NÃO serão alterados)")) {
+        db.run("DELETE FROM stock_movements");
+        saveDbToLocalStorage();
+        refreshAllData();
+        showToast("Histórico de movimentações limpo.");
+      }
+    }
+
+    function exportToExcel() {
+      const res = db.exec("SELECT sku, name, category, unit, cost_price, sell_price, current_stock, min_stock FROM products");
+      if (!res || res[0].values.length === 0) {
+        showToast("Nenhum produto cadastrado para exportar.", "error");
+        return;
+      }
+
+      const headers = ["SKU / Código", "Produto", "Categoria", "Unidade", "Preço Custo (R$)", "Preço Venda (R$)", "Estoque Atual", "Estoque Mínimo", "Status"];
+      const rows = [headers];
+
+      res[0].values.forEach(r => {
+        const [sku, name, cat, unit, cost, price, stock, minStock] = r;
+        let status = "NORMAL";
+        if (stock <= 0) status = "SEM ESTOQUE";
+        else if (stock <= minStock) status = "ESTOQUE BAIXO";
+
+        rows.push([sku, name, cat, unit, cost, price, stock, minStock, status]);
+      });
+
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+
+      const range = XLSX.utils.decode_range(worksheet['!ref']);
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!worksheet[cellAddress]) continue;
+
+          if (R === 0) {
+            worksheet[cellAddress].s = {
+              fill: { fgColor: { rgb: "0F172A" } },
+              font: { color: { rgb: "FFFFFF" }, bold: true, sz: 11 },
+              alignment: { horizontal: "center", vertical: "center" }
+            };
+          } else {
+            const statusCell = worksheet[XLSX.utils.encode_cell({ r: R, c: 8 })];
+            let bgColor = "FFFFFF";
+
+            if (statusCell && statusCell.v === "ESTOQUE BAIXO") bgColor = "FEF3C7";
+            if (statusCell && statusCell.v === "SEM ESTOQUE") bgColor = "FEE2E2";
+
+            worksheet[cellAddress].s = {
+              fill: { fgColor: { rgb: bgColor } },
+              font: { sz: 10 },
+              border: { bottom: { style: "thin", color: { rgb: "E2E8F0" } } }
+            };
+          }
+        }
+      }
+
+      worksheet['!cols'] = [
+        { wch: 16 }, { wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Estoque");
+
+      XLSX.writeFile(workbook, `Estoque_StockMaster_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast("Relatório Excel gerado com sucesso!");
+    }
+
+    function exportDatabaseFile() {
+      if (!db) return;
+      const data = db.export();
+      const blob = new Blob([data], { type: 'application/x-sqlite3' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `stockmaster_backup_${new Date().toISOString().split('T')[0]}.db`;
+      a.click();
+      showToast("Arquivo .db baixado com sucesso!");
+    }
+
+    function importDatabase(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const uInt8Array = new Uint8Array(e.target.result);
+          db = new SQL.Database(uInt8Array);
+          saveDbToLocalStorage();
+          refreshAllData();
+          showToast("Banco de dados SQLite importado com sucesso!");
+        } catch (err) {
+          showToast("Arquivo de banco de dados inválido.", "error");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function formatCurrency(val) {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '-';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return dateStr;
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      const msg = document.getElementById('toast-message');
+      const icon = document.getElementById('toast-icon');
+
+      msg.textContent = message;
+      if (type === 'error') {
+        toast.className = toast.className.replace('bg-slate-950', 'bg-rose-950');
+        icon.className = "w-4 h-4 text-rose-400";
+      } else {
+        toast.className = toast.className.replace('bg-rose-950', 'bg-slate-950');
+        icon.className = "w-4 h-4 text-emerald-400";
+      }
+
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
